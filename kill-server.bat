@@ -1,48 +1,47 @@
 @echo off
-chcp 65001 >nul
+chcp 65001 >nul 2>&1
 cls
 
 echo ========================================
-echo   サーバープロセス終了ツール
+echo   Kill Server Process
 echo ========================================
 echo.
 
-echo [INFO] ポート 3000 と 3001 を使用しているプロセスを確認中...
+echo [INFO] Checking processes using ports 3000 and 3001...
 echo.
 
-echo --- ポート 3000 ---
+echo --- Port 3000 ---
 netstat -ano | findstr :3000
 echo.
 
-echo --- ポート 3001 ---
+echo --- Port 3001 ---
 netstat -ano | findstr :3001
 echo.
 
 echo ========================================
-echo すべての Node.js プロセスを終了しますか？
+echo Kill all Node.js processes?
 echo ========================================
 echo.
 pause
 
 echo.
-echo [INFO] Node.js プロセスを終了しています...
+echo [INFO] Killing Node.js processes...
 taskkill /IM node.exe /F 2>nul
 
 if %ERRORLEVEL% EQU 0 (
-    echo [SUCCESS] ✅ Node.js プロセスを終了しました
+    echo [SUCCESS] Node.js processes killed
 ) else (
-    echo [INFO] 実行中の Node.js プロセスはありませんでした
+    echo [INFO] No running Node.js processes found
 )
 
 echo.
 echo ========================================
-echo 完了しました
+echo Done
 echo ========================================
 echo.
-echo 次のコマンドでサーバーを起動してください：
+echo To start the server again:
 echo   npm run dev
-echo または
+echo or
 echo   .\quick-start.bat
 echo.
 pause
-

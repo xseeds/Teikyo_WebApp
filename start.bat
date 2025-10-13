@@ -1,49 +1,48 @@
 @echo off
-chcp 65001 >nul
+chcp 65001 >nul 2>&1
 cls
 
 echo ========================================
-echo   WebChatBot Teikyo - 起動スクリプト
+echo   WebChatBot Teikyo - Start
 echo ========================================
 echo.
 
-REM 設定ファイルの確認
+REM Check config file
 if not exist "config\config.yaml" (
-    echo [エラー] config\config.yaml が見つかりません。
+    echo [ERROR] config\config.yaml not found.
     echo.
-    echo 以下の手順で設定ファイルを作成してください：
-    echo 1. config\config.yaml.example をコピー
-    echo 2. config\config.yaml にリネーム
-    echo 3. OpenAI API キーを設定
+    echo Please follow these steps:
+    echo 1. Copy config\config.yaml.example
+    echo 2. Rename to config\config.yaml
+    echo 3. Set your OpenAI API key
     echo.
     pause
     exit /b 1
 )
 
-REM node_modules の確認
+REM Check node_modules
 if not exist "node_modules" (
-    echo [情報] 依存パッケージをインストールしています...
+    echo [INFO] Installing dependencies...
     echo.
     call npm install
     if errorlevel 1 (
-        echo [エラー] npm install に失敗しました。
+        echo [ERROR] npm install failed.
         pause
         exit /b 1
     )
     echo.
 )
 
-echo [情報] アプリケーションを起動しています...
+echo [INFO] Starting application...
 echo.
-echo サーバー: http://localhost:3001
-echo フロント: http://localhost:3000
+echo Server: http://localhost:3001
+echo Frontend: http://localhost:3000
 echo.
-echo ブラウザで http://localhost:3000 を開いてください。
-echo 終了するには Ctrl+C を押してください。
+echo Open http://localhost:3000 in your browser.
+echo Press Ctrl+C to stop.
 echo.
 echo ========================================
 echo.
 
-REM アプリケーション起動
+REM Start application
 call npm run dev
-

@@ -1,51 +1,50 @@
 @echo off
-chcp 65001 >nul
+chcp 65001 >nul 2>&1
 cls
 
 echo ========================================
-echo   サーバーデバッグモード
+echo   Server Debug Mode
 echo ========================================
 echo.
 
-echo [チェック1] Node.js バージョン
+echo [Check 1] Node.js Version
 node --version
 echo.
 
-echo [チェック2] 現在のディレクトリ
+echo [Check 2] Current Directory
 cd
 echo.
 
-echo [チェック3] config.yaml の存在確認
+echo [Check 3] Check config.yaml
 if exist "config\config.yaml" (
-    echo ✅ config\config.yaml が見つかりました
+    echo [OK] config\config.yaml found
     echo.
-    echo [内容プレビュー]
+    echo [Content Preview]
     type config\config.yaml
 ) else (
-    echo ❌ config\config.yaml が見つかりません！
+    echo [X] config\config.yaml not found!
     echo.
     if exist "config\config.yaml.example" (
-        echo config\config.yaml.example は存在します。
-        echo 以下のコマンドでコピーしてください：
+        echo config\config.yaml.example exists.
+        echo Copy it with the following command:
         echo   copy config\config.yaml.example config\config.yaml
     )
 )
 echo.
 
-echo [チェック4] node_modules の確認
+echo [Check 4] Check node_modules
 if exist "node_modules" (
-    echo ✅ node_modules が見つかりました
+    echo [OK] node_modules found
 ) else (
-    echo ❌ node_modules が見つかりません
-    echo npm install を実行してください
+    echo [X] node_modules not found
+    echo Please run: npm install
 )
 echo.
 
 echo ========================================
-echo サーバーを起動します（デバッグログ有効）
+echo Starting server (debug logs enabled)
 echo ========================================
 echo.
 
 set DEBUG=*
 npm run server:dev
-

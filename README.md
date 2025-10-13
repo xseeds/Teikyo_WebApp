@@ -20,6 +20,19 @@ OpenAI Realtime API を使用した音声＋テキスト対応 ChatBot Webアプ
 
 ## セットアップ手順
 
+### ⚠️ 初めてこのプロジェクトをクローンした方へ
+
+**このプロジェクトをGitHubからクローンした場合、以下の手順が必須です：**
+
+1. ✅ `install.bat` を実行してセットアップを完了させる
+2. ✅ `config/config.yaml` に **あなた自身の** OpenAI API キーを設定する
+3. ✅ `start.bat` または `quick-start.bat` で起動する
+
+> **重要**: `config/config.yaml` はセキュリティのためGitに含まれていません。
+> 必ず上記の手順でセットアップを完了させてください。
+
+---
+
 ### 🚀 簡単セットアップ（推奨）
 
 **Windows ユーザー向け**: ダブルクリックで自動セットアップ！
@@ -34,6 +47,7 @@ OpenAI Realtime API を使用した音声＋テキスト対応 ChatBot Webアプ
 - Node.js のバージョン確認
 - 依存パッケージのインストール
 - 設定ファイルの作成（config.yaml）
+- メモ帳で config.yaml を自動的に開く（APIキー設定用）
 
 ---
 
@@ -316,12 +330,46 @@ RAG機能が必要な場合は、Chat Completions API または Assistants API �
 
 ## セキュリティ
 
+### 🔒 API キーの管理
+
 - ✅ API キーは `config/config.yaml` に保存（Git に含めない）
 - ✅ サーバー側でのみ API キーを使用
 - ✅ client_secret はセッションごとに一時的に発行
 - ✅ CORS は localhost のみ許可
 
-## 参考リンク
+### ⚠️ 重要な注意事項
+
+1. **絶対に API キーをGitにコミットしないでください**
+   - `config/config.yaml` は `.gitignore` に含まれています
+   - 誤ってコミットした場合は、すぐに OpenAI でキーを無効化してください
+
+2. **API キーが漏洩した場合の対処**
+   - https://platform.openai.com/api-keys にアクセス
+   - 漏洩したキーを無効化（Revoke）
+   - 新しいキーを生成して `config/config.yaml` に設定
+
+3. **GitHub にプッシュする前の確認**
+   ```bash
+   # config.yaml がコミット対象に含まれていないことを確認
+   git status
+   
+   # .gitignore が正しく機能しているか確認
+   git check-ignore config/config.yaml
+   # 出力: config/config.yaml （正常）
+   ```
+
+## 📚 ドキュメント
+
+### 📖 プロジェクト関連
+
+- **[SETUP_CHECKLIST.md](SETUP_CHECKLIST.md)** - 初回セットアップの詳細手順とチェックリスト
+- **[SECURITY.md](SECURITY.md)** - API キーの安全な管理方法
+- **[QUICK-START.md](QUICK-START.md)** - 1分で起動する方法
+- **[USAGE.md](USAGE.md)** - 詳細な使用方法
+- **[RAG_SETUP.md](RAG_SETUP.md)** - RAG機能のセットアップ
+- **verify-setup.bat** - セットアップ検証スクリプト（実行して確認）
+
+### 🔗 外部リンク
 
 - [OpenAI Realtime API Documentation](https://platform.openai.com/docs/guides/realtime)
 - [WebRTC Integration Guide](https://platform.openai.com/docs/guides/realtime-webrtc)

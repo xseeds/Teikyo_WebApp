@@ -1,24 +1,19 @@
 @echo off
-chcp 65001 >nul
-title WebChatBot Teikyo - 起動中...
+chcp 65001 >nul 2>&1
 
-REM 設定ファイルチェック
+REM Quick start without verbose output
 if not exist "config\config.yaml" (
-    echo config\config.yaml が見つかりません！
-    echo config\config.yaml.example をコピーして設定してください。
+    echo ERROR: config\config.yaml not found
+    echo Please run install.bat first
     pause
     exit /b 1
 )
 
-REM 初回のみ npm install
-if not exist "node_modules" (
-    echo 初回セットアップ中...
-    call npm install
-)
+REM Start application
+start /B npm run dev
 
-REM バックグラウンドでブラウザ起動スクリプトを実行
-start /min cmd /c start-browser.bat
+REM Wait for server to start
+timeout /t 5 /nobreak >nul
 
-REM アプリ起動
-call npm run dev
-
+REM Open browser
+start http://localhost:3000
