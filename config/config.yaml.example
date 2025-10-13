@@ -1,0 +1,33 @@
+# OpenAI Realtime ChatBot 設定ファイル
+# このファイルを config.yaml にコピーして使用してください
+
+security:
+  # OpenAI API キー（必須）
+  # https://platform.openai.com/api-keys から取得
+  openai_api_key: "sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+rag:
+  # Vector Store ID（オプション）
+  # RAG 機能を使用する場合は設定してください
+  # https://platform.openai.com/storage/vector_stores から取得
+  # 
+  # 空の場合、RAG機能は無効化されます
+  vector_store_id: ""
+
+prompt:
+  # システムプロンプト（必須）
+  # アシスタントの振る舞いを定義します
+  # 
+  # RAG 機能を使用する場合は、以下のような指示を含めることを推奨します：
+  # - ドメイン知識が絡む質問は、最初に kb_search を必ず呼ぶ
+  # - 見つからなければ「情報不足」と述べる
+  # - 回答の根拠は引用符で囲んで引用し、末尾に [出典: file p.xx] を付ける
+  system: |
+    あなたは簡潔に話す音声アシスタントです。
+    専門用語は噛み砕いて説明してください。
+    ユーザーに親切で、分かりやすい回答を心がけてください。
+    
+    ドメイン知識や専門的な質問に対しては、kb_search ツールを使用して
+    関連情報を検索し、引用と出典を明示して回答してください。
+    根拠となる情報が見つからない場合は「情報不足」と明確に述べてください。
+

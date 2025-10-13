@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# 機密情報を含む設定ファイル
+config/config.yaml
+
+# エディタ
+.vscode/
+.idea/
+*.swp
+*.swo
+
