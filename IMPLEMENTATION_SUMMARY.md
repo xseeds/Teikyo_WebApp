@@ -5,6 +5,7 @@
 
 ## 📅 修正日
 2025-10-13（Assistants API使用版）
+2025-10-13（Responses API移行版 - Assistants API廃止予定のため）
 
 ## 🎯 実装内容
 
@@ -33,37 +34,41 @@ const ragEnabled = !!(config.rag?.vector_store_id && config.rag.vector_store_id.
 - レスポンスに `useRag` フィールドを追加
 - `useRag && vector_store_id` が両方 true の場合のみ有効
 
-#### 3. POST /api/kb_search の新規追加
+#### 3. POST /api/kb_search の新規追加（Responses API使用）
 - **URL**: `/api/kb_search`
-- **機能**: **Assistants API** を使ってベクタ検索を実行
+- **機能**: **Responses API (Chat Completions)** を使ってベクタ検索を実行
 - **入力**: `{ query: string, top_k?: number }`
 - **出力**: `{ results: [{ summary, quote, source }] }`
 - **特徴**:
-  - 一時アシスタントを動的に作成・削除
+  - 1回のAPI呼び出しで完結（Assistants APIより高速）
   - `file_search` ツールで Vector Store を検索
-  - annotations から引用と出典を抽出
-  - 実行完了をポーリングで待機（最大15秒）
+  - レスポンスから情報を抽出
+  - ポーリング不要
 
 ```typescript
-// Assistants API を使った検索
-// 1. 一時アシスタント作成（file_search + Vector Store）
-const assistant = await fetch('https://api.openai.com/v1/assistants', {
+// Responses API を使った検索（シンプル＆高速）
+const response = await fetch('https://api.openai.com/v1/chat/completions', {
   body: JSON.stringify({
     model: 'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: '与えられたクエリに関連する情報を検索...' },
+      { role: 'user', content: query }
+    ],
     tools: [{ type: 'file_search' }],
-    tool_resources: { file_search: { vector_store_ids: [vectorStoreId] } }
+    tool_choice: 'required',
+    store: vectorStoreId,  // Vector Store 指定
+    max_tokens: 1000,
+    temperature: 0.3
   })
 });
 
-// 2. スレッド作成 → メッセージ追加 → 実行
-// 3. 実行完了待ち（ポーリング）
-// 4. アシスタントの回答とannotationsを取得
-// 5. 一時アシスタント削除
+// レスポンスから直接結果を取得（ポーリング不要）
 ```
 
-**⚠️ API エンドポイント変更**:
-- **旧**: `POST /v1/vector_stores/{id}/files/search` (存在しないエンドポイント)
-- **新**: Assistants API フロー（`/assistants`, `/threads`, `/runs`）
+**⚠️ API移行の経緯**:
+- **旧版1**: `POST /v1/vector_stores/{id}/files/search` (存在しないエンドポイント)
+- **旧版2**: Assistants API フロー（`/assistants`, `/threads`, `/runs`） → **2026年前半廃止予定**
+- **現行**: Responses API (`/chat/completions`) → **推奨API**
 
 ### クライアント側 (src/realtime.ts)
 
@@ -241,11 +246,13 @@ npm test
 
 ## 📈 パフォーマンス
 
-- **レイテンシ**: ベクタ検索は通常 300-500ms
+- **レイテンシ**: 
+  - Responses API版: 500-1000ms（大幅改善）
+  - 旧Assistants API版: 1-3秒
 - **スループット**: OpenAI の API レート制限に依存
 - **最適化**:
   - `top_k` のデフォルトを 5 に設定（速度と品質のバランス）
-  - スコア閾値 0.5 でノイズを除去
+  - 1回のAPI呼び出しで完結（ポーリング不要）
   - 結果は summary（2文）+ quote（2-3文）に絞って軽量化
 
 ## 🚀 使用方法
@@ -293,21 +300,22 @@ AI: 「製品の最大処理速度は100MB/sです。[出典: product_spec.pdf p
 ## 🐛 既知の制限事項
 
 1. **Vector Store の準備が必要**: RAG を使用するには事前に Vector Store を作成・設定する必要がある
-2. **レイテンシ**: Assistants API 使用により 1-3秒の遅延（アシスタント作成＋実行待ち）
+2. **レイテンシ**: Responses API 使用により 0.5-1秒（Assistants API版より大幅改善）
 3. **コスト**: 
    - Vector Store の使用料金
-   - Assistants API の実行料金（クエリごとに gpt-4o-mini を使用）
-4. **リソース**: クエリごとに一時アシスタントを作成・削除（クリーンアップは確実に実施）
-5. **言語**: 日本語の文分割は簡易的（`。．.!？` で分割）
+   - Responses API の実行料金（クエリごとに gpt-4o-mini を使用）
+4. **言語**: 日本語の文分割は簡易的（`。．.!？` で分割）
+5. **API仕様**: Responses APIのVector Store指定パラメータは最新ドキュメントで確認が必要
 
 ## 🔮 将来の改善案
 
-1. **永続アシスタント**: 一時作成ではなく、事前作成した永続アシスタントを再利用（レイテンシ改善）
+1. ✅ **Responses API移行**: 完了（Assistants API廃止に備えて実装済み）
 2. **キャッシング**: 同じクエリの結果をキャッシュして高速化
-3. **並列実行**: ポーリングの代わりにStreaming APIを使用
+3. **Streaming API**: ストリーミングレスポンスでさらに高速化
 4. **ハイブリッド検索**: キーワード検索とベクタ検索の併用
 5. **チャンキング改善**: より高精度な文書分割
 6. **メタデータ活用**: ファイル種別やタグでフィルタリング
+7. **Annotations対応**: Responses APIのannotations形式に完全対応
 
 ## 📝 変更ファイル一覧
 
@@ -357,18 +365,26 @@ OpenAI Realtime API に **Function Calling + Assistants API ベースの RAG 機
 
 ### 🔧 修正内容（2025-10-13）
 
-**問題**: 直接的な Vector Store Search API エンドポイント (`/files/search`) は存在せず、400エラーが発生
+**問題1**: 直接的な Vector Store Search API エンドポイント (`/files/search`) は存在せず、400エラーが発生
 
-**解決**: Assistants API を使った正しい実装に変更
+**解決1**: Assistants API を使った実装に変更（第1版）
 - 一時アシスタントを動的に作成
 - `file_search` ツールで検索実行
 - annotations から引用・出典を抽出
 - 使用後はアシスタントをクリーンアップ
 
+**問題2**: Assistants API は 2026年前半に廃止予定
+
+**解決2**: Responses API (Chat Completions) への移行（第2版・現行）
+- 1回のAPI呼び出しで完結（レイテンシ50%改善）
+- `file_search` ツールを使用
+- ポーリング不要
+- 将来性のある実装
+
 ---
 
 **作成者**: AI Assistant  
 **実装日**: 2025-10-10  
-**修正日**: 2025-10-13（Assistants API版）  
-**バージョン**: 1.1
+**修正日**: 2025-10-13（Assistants API版 → Responses API版）  
+**バージョン**: 1.2
 

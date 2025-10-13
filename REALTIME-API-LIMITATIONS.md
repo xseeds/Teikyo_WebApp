@@ -39,12 +39,28 @@ OpenAI は将来的に以下の機能を追加する可能性があります：
 
 ---
 
-## 🔄 RAG機能が必要な場合の代替案
+## 🔄 RAG機能の実装方法
 
-### オプション 1: Chat Completions API を使用
+### ✅ このアプリの実装（推奨）: ハイブリッドアプローチ
+
+このアプリでは、Realtime APIとResponses APIを組み合わせてRAG機能を実現しています：
+
+1. **Realtime API**: `function` タイプのカスタムツール (`kb_search`) を登録
+2. **Responses API**: サーバー側で `file_search` ツールを使ってVector Storeを検索
+3. **結果の統合**: Realtime APIに検索結果を返して音声＋テキストで回答
 
 ```javascript
-// Chat Completions API は file_search をサポート
+// クライアント側: Realtime APIにカスタムツール登録
+session.update({
+  tools: [{
+    type: 'function',
+    name: 'kb_search',
+    description: 'ベクタ検索を実行',
+    parameters: { query: 'string' }
+  }]
+});
+
+// サーバー側: Responses API でVector Store検索
 const response = await fetch('https://api.openai.com/v1/chat/completions', {
   method: 'POST',
   headers: {
@@ -52,43 +68,20 @@ const response = await fetch('https://api.openai.com/v1/chat/completions', {
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
-    model: 'gpt-4o',
-    messages: [
-      { role: 'user', content: 'あなたの質問' }
-    ],
+    model: 'gpt-4o-mini',
+    messages: [{ role: 'user', content: query }],
     tools: [{ type: 'file_search' }],
-    tool_choice: 'auto'
+    tool_choice: 'required',
+    store: vectorStoreId
   })
 });
 ```
 
-### オプション 2: Assistants API を使用
+### ⚠️ 非推奨: Assistants API（2026年廃止予定）
 
-```javascript
-// Assistants API は Vector Store を完全サポート
-const assistant = await openai.beta.assistants.create({
-  model: 'gpt-4o',
-  tools: [{ type: 'file_search' }]
-});
+従来はAssistants APIを使用していましたが、2026年前半に廃止予定のため、Responses APIへ移行済みです。
 
-const thread = await openai.beta.threads.create({
-  messages: [
-    {
-      role: 'user',
-      content: 'あなたの質問',
-      attachments: [
-        { vector_store_id: 'vs_xxx' }
-      ]
-    }
-  ]
-});
-```
-
-### オプション 3: ハイブリッドアプローチ
-
-1. テキストベースの質問 → Chat Completions API（RAG使用）
-2. 音声での会話 → Realtime API
-3. 必要に応じて切り替え
+詳細は [RAG_SETUP.md](RAG_SETUP.md) をご覧ください。
 
 ---
 
@@ -111,6 +104,6 @@ Realtime API の最新情報は以下で確認できます：
 
 ---
 
-**最終更新**: 2025-10-10  
-**ステータス**: RAG機能は未サポート（将来対応予定）
+**最終更新**: 2025-10-13  
+**ステータス**: RAG機能は未サポート（ハイブリッドアプローチで実装済み）
 

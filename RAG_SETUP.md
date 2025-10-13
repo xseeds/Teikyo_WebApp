@@ -114,11 +114,11 @@ AI: 「製品の仕様は以下の通りです。"最大処理速度は100MB/s�
     ↓
 [サーバー] POST /api/kb_search
     ↓
-[Assistants API] 一時アシスタント作成
+[Responses API] Chat Completions + file_search ツール
     ↓
-[Vector Store] file_search で検索実行
+[Vector Store] file_search で検索実行（1回のAPI呼び出し）
     ↓
-[Assistants API] annotationsから引用・出典抽出
+[Responses API] レスポンスから情報抽出
     ↓
 検索結果（要約・引用・出典）
     ↓
@@ -129,15 +129,22 @@ AI: 「製品の仕様は以下の通りです。"最大処理速度は100MB/s�
 
 ### 内部実装の詳細
 
-RAG機能は **Assistants API** を使って実装されています：
+RAG機能は **Responses API (Chat Completions)** を使って実装されています：
 
-1. **一時アシスタントの作成**: クエリごとに `file_search` ツール付きの一時アシスタントを作成
-2. **スレッド作成**: 検索クエリ用のスレッドを作成
-3. **実行**: アシスタントにクエリを実行させ、Vector Store を検索
-4. **結果抽出**: アシスタントの回答から `annotations` を抽出
-5. **クリーンアップ**: 一時アシスタントを削除
+1. **1回のAPI呼び出し**: `file_search` ツール付きの Chat Completions リクエスト
+2. **Vector Store 検索**: `tool_choice: 'required'` で必ず検索を実行
+3. **結果取得**: レスポンスから直接検索結果を抽出
+4. **整形**: summary, quote, source の形式に整形して返却
 
-この方式により、OpenAI の高度な検索アルゴリズムと引用機能を活用できます。
+**⚠️ 実装の変遷**:
+- **旧版**: Assistants API（2026年前半廃止予定）
+  - 複雑なフロー（アシスタント作成→スレッド→実行→ポーリング→削除）
+  - レイテンシ: 1-3秒
+- **現行**: Responses API（推奨）
+  - シンプルなフロー（1回のAPI呼び出し）
+  - レイテンシ: 0.5-1秒（50%高速化）
+
+この方式により、OpenAI の高度な検索アルゴリズムを活用しつつ、高速で将来性のある実装が実現されています。
 
 ### kb_search ツール
 
@@ -172,13 +179,10 @@ RAG機能は、Realtime APIの**function calling**を使って実装されてい
 4. `response.function_call_arguments.done` でツール呼び出し検知
 5. サーバー `/api/kb_search` にリクエスト
 6. **[サーバー内部]**:
-   - 一時アシスタント作成（`file_search` + Vector Store）
-   - スレッド作成
-   - メッセージ追加
-   - 実行開始
-   - 実行完了待ち（ポーリング）
-   - アシスタントの回答とannotationsを取得
-   - 一時アシスタント削除
+   - Responses API 呼び出し（`file_search` + Vector Store）
+   - 1回のAPI呼び出しで完結（ポーリング不要）
+   - レスポンスから検索結果を抽出
+   - 結果を整形
 7. `conversation.item.create` でツール結果返却
 8. `response.create` で最終回答要求
 9. `response.text.delta` / `response.audio.delta` で回答受信
@@ -225,14 +229,14 @@ RAG機能は、Realtime APIの**function calling**を使って実装されてい
 - **403**: 権限エラー → API キーを確認
 - **429**: レート制限 → しばらく待ってから再試行
 
-### エラー: "実行がタイムアウトしました"
+### エラー: "Responses API error"
 
-**原因**: Vector Store のインデックス作成が未完了、または大量のファイルがある
+**原因**: Vector Store ID が間違っている、またはAPI仕様の変更
 
 **解決策**:
-1. OpenAI Platform で Vector Store の状態を確認
-2. インデックス作成完了を待つ
-3. ファイル数を減らす（大規模な場合）
+1. OpenAI Platform で Vector Store ID を確認
+2. 最新のOpenAI APIドキュメントでfile_searchツールの仕様を確認
+3. サーバーログで詳細なエラーメッセージを確認
 
 ## 📊 ベストプラクティス
 

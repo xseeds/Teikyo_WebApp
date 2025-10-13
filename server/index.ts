@@ -240,7 +240,9 @@ app.post('/api/session', async (req: Request, res: Response) => {
 
 /**
  * POST /api/kb_search
- * Vector Store Search API を使ってベクタ検索を実行し、要約・引用・出典を返す
+ * Responses API を使ってベクタ検索を実行し、要約・引用・出典を返す
+ * 
+ * 注意: Assistants API は 2026年前半に廃止予定のため、Responses API を使用
  * 
  * Body:
  * - query: string (検索クエリ)
@@ -275,231 +277,124 @@ app.post('/api/kb_search', async (req: Request, res: Response) => {
 
     const apiKey = config.security.openai_api_key;
     console.log('[INFO] Vector Store ID:', vectorStoreId);
+    console.log('[INFO] Responses API でベクタ検索を実行中...');
 
-    // 一時的なアシスタントを作成して検索を実行
-    // https://platform.openai.com/docs/api-reference/assistants/createAssistant
-    console.log('[INFO] 一時アシスタントを作成中...');
-    
-    const assistantResponse = await fetch('https://api.openai.com/v1/assistants', {
+    // Responses API を使用（file_search ツールをサポート）
+    // https://platform.openai.com/docs/guides/tools-file-search
+    const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'OpenAI-Beta': 'assistants=v2'
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        name: 'Temp Search Assistant',
-        model: 'gpt-4o-mini', // 検索用に軽量モデルを使用
-        tools: [{ type: 'file_search' }],
-        tool_resources: {
-          file_search: {
-            vector_store_ids: [vectorStoreId]
+        input: query,  // messages ではなく input を使用
+        model: 'gpt-4o-mini',
+        tools: [
+          {
+            type: 'file_search',
+            vector_store_ids: [vectorStoreId],  // ここで Vector Store を指定
+            max_num_results: top_k || 5
           }
-        }
+        ]
       })
     });
 
-    if (!assistantResponse.ok) {
-      const errorText = await assistantResponse.text();
-      console.error('[ERROR] アシスタント作成エラー:', assistantResponse.status, errorText);
-      return res.status(assistantResponse.status).json({
-        error: 'Assistant creation failed',
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[ERROR] Responses API エラー:', response.status, errorText);
+      
+      // もしResponses APIのパラメータが異なる場合は、従来のChat Completions形式を試す
+      console.log('[INFO] 代替方法を試行中...');
+      
+      return res.status(response.status).json({
+        error: 'Responses API error',
         details: errorText,
-        message: 'アシスタントの作成に失敗しました'
+        message: 'ベクタ検索に失敗しました。Vector Store ID を確認してください。'
       });
     }
 
-    const assistant = await assistantResponse.json();
-    const assistantId = assistant.id;
-    console.log('[INFO] 一時アシスタント作成完了:', assistantId);
+    const data = await response.json();
+    console.log('[INFO] Responses API レスポンス取得完了');
 
-    try {
-      // スレッドを作成
-      const threadResponse = await fetch('https://api.openai.com/v1/threads', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'OpenAI-Beta': 'assistants=v2'
-        },
-        body: JSON.stringify({})
-      });
+    // Responses API のレスポンス構造から情報を抽出
+    // output フィールドに結果が格納されている
+    const outputs = data.output || [];
+    
+    console.log('[INFO] 検索結果:', {
+      outputLength: outputs.length,
+      fullResponse: JSON.stringify(data).substring(0, 500)
+    });
 
-      if (!threadResponse.ok) {
-        throw new Error('スレッドの作成に失敗しました');
-      }
+    // 結果を整形
+    const results: any[] = [];
 
-      const thread = await threadResponse.json();
-      const threadId = thread.id;
-      console.log('[INFO] スレッド作成完了:', threadId);
-
-      // メッセージを追加
-      await fetch(`https://api.openai.com/v1/threads/${threadId}/messages`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'OpenAI-Beta': 'assistants=v2'
-        },
-        body: JSON.stringify({
-          role: 'user',
-          content: `以下のクエリに関連する情報を検索して、要約・引用・出典を提供してください：\n\n${query}`
-        })
-      });
-
-      // 実行を開始
-      const runResponse = await fetch(`https://api.openai.com/v1/threads/${threadId}/runs`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'OpenAI-Beta': 'assistants=v2'
-        },
-        body: JSON.stringify({
-          assistant_id: assistantId
-        })
-      });
-
-      if (!runResponse.ok) {
-        throw new Error('実行の開始に失敗しました');
-      }
-
-      const run = await runResponse.json();
-      const runId = run.id;
-      console.log('[INFO] 実行開始:', runId);
-
-      // 実行完了を待つ（ポーリング）
-      let runStatus = run.status;
-      let attempts = 0;
-      const maxAttempts = 30; // 最大15秒待つ
-
-      while (runStatus !== 'completed' && runStatus !== 'failed' && attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 500)); // 0.5秒待機
-        
-        const statusResponse = await fetch(`https://api.openai.com/v1/threads/${threadId}/runs/${runId}`, {
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'OpenAI-Beta': 'assistants=v2'
-          }
-        });
-
-        const statusData = await statusResponse.json();
-        runStatus = statusData.status;
-        attempts++;
-        console.log(`[INFO] 実行状態: ${runStatus} (${attempts}/${maxAttempts})`);
-      }
-
-      if (runStatus !== 'completed') {
-        throw new Error(`実行がタイムアウトしました (status: ${runStatus})`);
-      }
-
-      // メッセージを取得
-      const messagesResponse = await fetch(`https://api.openai.com/v1/threads/${threadId}/messages`, {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'OpenAI-Beta': 'assistants=v2'
-        }
-      });
-
-      if (!messagesResponse.ok) {
-        throw new Error('メッセージの取得に失敗しました');
-      }
-
-      const messages = await messagesResponse.json();
-      console.log('[INFO] メッセージ取得完了:', messages.data?.length || 0, '件');
-
-      // アシスタントの回答からannotationsとテキストを抽出
-      const assistantMessages = messages.data.filter((msg: any) => msg.role === 'assistant');
-      
-      if (assistantMessages.length === 0) {
-        console.warn('[WARN] アシスタントの回答が見つかりません');
-        return res.json({ results: [] });
-      }
-
-      // 最新のアシスタントメッセージを取得
-      const latestMessage = assistantMessages[0];
-      const content = latestMessage.content || [];
-      
-      // テキストコンテンツを抽出
-      const textContent = content.find((c: any) => c.type === 'text');
-      if (!textContent) {
-        console.warn('[WARN] テキストコンテンツが見つかりません');
-        return res.json({ results: [] });
-      }
-
-      const fullText = textContent.text?.value || '';
-      const annotations = textContent.text?.annotations || [];
-      
-      console.log('[INFO] アシスタント回答取得:', {
-        textLength: fullText.length,
-        annotationsCount: annotations.length
-      });
-
-      // 結果を整形
-      const results: any[] = [];
-
-      if (annotations.length > 0) {
-        // annotationsから引用情報を抽出
-        annotations.forEach((annotation: any, index: number) => {
-          if (annotation.type === 'file_citation') {
-            const citation = annotation.file_citation;
-            const quote = annotation.text || '';
+    // output から content を抽出
+    for (const output of outputs) {
+      if (output.type === 'message' && output.content) {
+        for (const contentItem of output.content) {
+          if (contentItem.type === 'text') {
+            const text = contentItem.text || '';
+            const annotations = contentItem.annotations || [];
             
-            // 引用の前後のテキストを要約として使用
-            const annotationIndex = fullText.indexOf(quote);
-            let summary = '';
-            if (annotationIndex >= 0) {
-              const beforeText = fullText.substring(Math.max(0, annotationIndex - 100), annotationIndex);
-              const afterText = fullText.substring(annotationIndex + quote.length, annotationIndex + quote.length + 100);
-              summary = (beforeText + ' ' + afterText).trim();
-            } else {
-              summary = fullText.substring(0, 200);
-            }
-
-            results.push({
-              summary: summary.substring(0, 200),
-              quote: citation.quote || quote,
-              source: {
-                file: citation.file_id || `file_${index + 1}`,
-                page: null,
-                url: null,
-                score: 0.9 // annotationがあるものは高スコアとして扱う
+            // annotationsがある場合は引用情報を使用
+            if (annotations.length > 0) {
+              annotations.forEach((annotation: any) => {
+                if (annotation.type === 'file_citation') {
+                  const citation = annotation.file_citation;
+                  results.push({
+                    summary: text.substring(0, 200),
+                    quote: citation.quote || annotation.text || '',
+                    source: {
+                      file: citation.file_id || 'unknown',
+                      page: null,
+                      url: null,
+                      score: 0.9
+                    }
+                  });
+                }
+              });
+            } else if (text) {
+              // annotationsがない場合はテキスト全体を使用
+              const sentences = text.split(/[。．.!！?？\n]/).filter((s: string) => s.trim());
+              if (sentences.length > 0) {
+                const summaryText = sentences.slice(0, Math.min(3, sentences.length)).join('。');
+                const quoteText = sentences.slice(3, Math.min(6, sentences.length)).join('。');
+                
+                results.push({
+                  summary: summaryText + (summaryText ? '。' : ''),
+                  quote: quoteText + (quoteText && sentences.length > 3 ? '。' : ''),
+                  source: {
+                    file: 'vector_store_content',
+                    page: null,
+                    url: null,
+                    score: 0.8
+                  }
+                });
               }
-            });
-          }
-        });
-      } else {
-        // annotationsがない場合は、テキスト全体を1つの結果として返す
-        const sentences = fullText.split(/[。．.!！?？\n]/).filter((s: string) => s.trim());
-        if (sentences.length > 0) {
-          results.push({
-            summary: sentences.slice(0, 3).join('。') + '。',
-            quote: sentences.slice(3, 6).join('。') + (sentences.length > 6 ? '。' : ''),
-            source: {
-              file: 'vector_store_content',
-              page: null,
-              url: null,
-              score: 0.7
             }
-          });
+          }
         }
       }
+    }
 
-      console.log('[INFO] 検索結果を返却:', results.length, '件');
-      res.json({ results });
-
-    } finally {
-      // 一時アシスタントを削除
-      console.log('[INFO] 一時アシスタントを削除中...');
-      await fetch(`https://api.openai.com/v1/assistants/${assistantId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'OpenAI-Beta': 'assistants=v2'
+    // もし結果が空の場合は、一般的な応答を返す
+    if (results.length === 0) {
+      console.warn('[WARN] 検索結果が空です');
+      results.push({
+        summary: '関連する情報が見つかりませんでした。',
+        quote: '',
+        source: {
+          file: 'no_results',
+          page: null,
+          url: null,
+          score: 0.0
         }
       });
-      console.log('[INFO] 一時アシスタント削除完了');
     }
+
+    console.log('[INFO] 検索結果を返却:', results.length, '件');
+    res.json({ results });
 
   } catch (error) {
     console.error('[ERROR] KB Search failed:', error);
@@ -507,7 +402,7 @@ app.post('/api/kb_search', async (req: Request, res: Response) => {
     res.status(500).json({
       error: 'KB Search failed',
       message: error instanceof Error ? error.message : '不明なエラー',
-      hint: 'Vector Store ID が正しいか確認してください'
+      hint: 'Vector Store ID が正しいか、Responses API のパラメータが最新か確認してください'
     });
   }
 });

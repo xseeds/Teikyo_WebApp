@@ -72,7 +72,7 @@ openai_api_key: "sk-proj-あなたの実際のAPIキーをここに"
 - ✅ **テキスト入力対応** - キーボードからもメッセージ送信可能
 - ✅ **モデル選択** - GPT Realtime / Mini を選択可能
 - ✅ **8種類のボイス** - 好みの音声を選択
-- ✅ **RAG機能** - Vector Store検索で引用・出典付き回答
+- ✅ **RAG機能** - Vector Store検索で引用・出典付き回答（Responses API使用）
 - ✅ **セキュア** - APIキーはサーバー側のみで保持
 
 ---
