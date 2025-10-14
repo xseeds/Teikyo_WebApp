@@ -19,7 +19,8 @@ const sendBtn = document.getElementById('sendBtn') as HTMLButtonElement;
 const micBtn = document.getElementById('micBtn') as HTMLButtonElement;
 
 let realtimeClient: RealtimeClient | null = null;
-let ragEnabled = false;
+let ragAvailable = false; // RAG機能が利用可能かどうか（vector_store_idが設定されているか）
+let ragEnabled = false; // RAGを実際に使用するかどうか（ユーザーの選択）
 let messageIdCounter = 0;
 let currentAssistantMessageId: string | null = null;
 let currentUserMessageId: string | null = null;
@@ -102,13 +103,21 @@ async function initialize() {
     // RAG の状態確認のみに使用
     
     // RAG トグルの初期状態
-    ragEnabled = config.ragEnabled || false;
-    if (ragEnabled) {
-      ragToggle.classList.add('active');
+    ragAvailable = config.ragEnabled || false;
+    if (ragAvailable) {
+      // RAG機能が利用可能な場合、トグルを有効化（デフォルトはOFF）
+      ragToggle.style.opacity = '1';
+      ragToggle.style.cursor = 'pointer';
+      ragEnabled = false; // 初期状態はOFF
+      ragToggle.classList.remove('active');
+      console.log('[INFO] RAG機能が利用可能です（初期状態: OFF）');
     } else {
       // RAGが利用できない場合はトグルを無効化
       ragToggle.style.opacity = '0.5';
       ragToggle.style.cursor = 'not-allowed';
+      ragEnabled = false;
+      ragToggle.classList.remove('active');
+      console.log('[INFO] RAG機能は利用できません（vector_store_id未設定）');
     }
     
     // RAGに関する注意メッセージ
@@ -116,7 +125,7 @@ async function initialize() {
       console.warn('[WARN]', config.ragNote);
     }
     
-    console.log('[INFO] 初期化完了 - RAG:', ragEnabled);
+    console.log('[INFO] 初期化完了 - RAG利用可能:', ragAvailable, '/ RAG有効:', ragEnabled);
     updateStatus('disconnected', '未接続');
   } catch (error) {
     console.error('[ERROR] 初期化エラー:', error);
@@ -273,12 +282,12 @@ sendBtn.addEventListener('click', handleSendText);
 
 // RAG トグル
 ragToggle.addEventListener('click', () => {
-  // RAGが無効化されている場合（vector_store_idが未設定）
-  const isRagAvailable = ragToggle.style.opacity !== '0.5';
-  if (!isRagAvailable) {
+  // RAGが利用不可の場合（vector_store_idが未設定）
+  if (!ragAvailable) {
     alert('⚠️ RAG機能を使用するには、config.yaml に vector_store_id を設定してください。\n\nVector Store は OpenAI Platform で作成できます。');
     return;
   }
+  // RAG機能が利用可能な場合、トグルをオン/オフ
   ragEnabled = !ragEnabled;
   ragToggle.classList.toggle('active', ragEnabled);
   console.log('[INFO] RAG トグル:', ragEnabled ? 'ON' : 'OFF');

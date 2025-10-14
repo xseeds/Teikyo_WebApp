@@ -288,12 +288,12 @@ app.post('/api/kb_search', async (req: Request, res: Response) => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        input: query,  // messages ではなく input を使用
+        input: query,
         model: 'gpt-4o-mini',
         tools: [
           {
             type: 'file_search',
-            vector_store_ids: [vectorStoreId],  // ここで Vector Store を指定
+            vector_store_ids: [vectorStoreId],
             max_num_results: top_k || 5
           }
         ]
@@ -304,9 +304,6 @@ app.post('/api/kb_search', async (req: Request, res: Response) => {
       const errorText = await response.text();
       console.error('[ERROR] Responses API エラー:', response.status, errorText);
       
-      // もしResponses APIのパラメータが異なる場合は、従来のChat Completions形式を試す
-      console.log('[INFO] 代替方法を試行中...');
-      
       return res.status(response.status).json({
         error: 'Responses API error',
         details: errorText,
@@ -316,6 +313,7 @@ app.post('/api/kb_search', async (req: Request, res: Response) => {
 
     const data = await response.json();
     console.log('[INFO] Responses API レスポンス取得完了');
+    console.log('[DEBUG] Full response:', JSON.stringify(data, null, 2).substring(0, 2000));
 
     // Responses API のレスポンス構造から情報を抽出
     // output フィールドに結果が格納されている
@@ -323,55 +321,77 @@ app.post('/api/kb_search', async (req: Request, res: Response) => {
     
     console.log('[INFO] 検索結果:', {
       outputLength: outputs.length,
-      fullResponse: JSON.stringify(data).substring(0, 500)
+      outputTypes: outputs.map((o: any) => o.type)
     });
 
     // 結果を整形
     const results: any[] = [];
 
-    // output から content を抽出
+    // output から file_search_call の results を抽出
     for (const output of outputs) {
+      // file_search_call の結果を確認
+      if (output.type === 'file_search_call' && output.results) {
+        console.log('[INFO] file_search_call 結果を発見:', output.results.length, '件');
+        
+        output.results.forEach((result: any) => {
+          const content = result.content || '';
+          const fileName = result.file_name || result.file_id || 'unknown';
+          const score = result.score || 0.5;
+          
+          // 内容を要約と引用に分割
+          const sentences = content.split(/[。．.!！?？\n]/).filter((s: string) => s.trim());
+          const summaryText = sentences.slice(0, Math.min(2, sentences.length)).join('。');
+          const quoteText = sentences.slice(2, Math.min(5, sentences.length)).join('。');
+          
+          results.push({
+            summary: summaryText + (summaryText ? '。' : ''),
+            quote: quoteText + (quoteText && sentences.length > 2 ? '。' : ''),
+            source: {
+              file: fileName,
+              page: null,
+              url: null,
+              score: score
+            }
+          });
+        });
+      }
+      
+      // message 型の output から情報を抽出
       if (output.type === 'message' && output.content) {
         for (const contentItem of output.content) {
-          if (contentItem.type === 'text') {
-            const text = contentItem.text || '';
+          if (contentItem.type === 'output_text' && contentItem.text) {
+            const text = contentItem.text;
             const annotations = contentItem.annotations || [];
             
-            // annotationsがある場合は引用情報を使用
-            if (annotations.length > 0) {
-              annotations.forEach((annotation: any) => {
-                if (annotation.type === 'file_citation') {
-                  const citation = annotation.file_citation;
-                  results.push({
-                    summary: text.substring(0, 200),
-                    quote: citation.quote || annotation.text || '',
-                    source: {
-                      file: citation.file_id || 'unknown',
-                      page: null,
-                      url: null,
-                      score: 0.9
-                    }
-                  });
+            // ファイル情報を取得（annotationsから）
+            let fileName = 'vector_store_content';
+            if (annotations.length > 0 && annotations[0].type === 'file_citation') {
+              fileName = annotations[0].filename || annotations[0].file_id || 'vector_store_content';
+            }
+            
+            // テキストを文単位で分割
+            const sentences = text.split(/[。．.!！?？\n]/).filter((s: string) => s.trim());
+            
+            if (sentences.length > 0) {
+              const summaryText = sentences.slice(0, Math.min(2, sentences.length)).join('。');
+              const quoteText = sentences.slice(2, Math.min(5, sentences.length)).join('。');
+              
+              results.push({
+                summary: summaryText + (summaryText ? '。' : ''),
+                quote: quoteText + (quoteText && sentences.length > 2 ? '。' : ''),
+                source: {
+                  file: fileName,
+                  page: null,
+                  url: null,
+                  score: 0.9
                 }
               });
-            } else if (text) {
-              // annotationsがない場合はテキスト全体を使用
-              const sentences = text.split(/[。．.!！?？\n]/).filter((s: string) => s.trim());
-              if (sentences.length > 0) {
-                const summaryText = sentences.slice(0, Math.min(3, sentences.length)).join('。');
-                const quoteText = sentences.slice(3, Math.min(6, sentences.length)).join('。');
-                
-                results.push({
-                  summary: summaryText + (summaryText ? '。' : ''),
-                  quote: quoteText + (quoteText && sentences.length > 3 ? '。' : ''),
-                  source: {
-                    file: 'vector_store_content',
-                    page: null,
-                    url: null,
-                    score: 0.8
-                  }
-                });
-              }
+              
+              console.log('[INFO] output_text から結果を抽出しました:', {
+                fileName,
+                textLength: text.length,
+                annotationsCount: annotations.length
+              });
             }
           }
         }
