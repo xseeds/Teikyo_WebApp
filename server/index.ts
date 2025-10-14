@@ -68,37 +68,49 @@ function loadConfig(): Config {
   try {
     const configPath = resolve(process.cwd(), 'config', 'config.yaml');
     console.log('[INFO] 設定ファイルパス:', configPath);
-    
-    // ファイルの存在確認
+
+    let fileConfig: Partial<Config> = {};
+
+    // ファイルが存在する場合のみ読む（存在しなくても環境変数だけで動作可能にする）
     try {
       const fileContent = readFileSync(configPath, 'utf8');
       console.log('[INFO] config.yaml を読み込みました（サイズ: ' + fileContent.length + ' バイト）');
-      
-      const config = yamlLoad(fileContent) as Config;
+      fileConfig = (yamlLoad(fileContent) as Config) || {};
       console.log('[INFO] YAML パース成功');
-
-      // 必須フィールドのバリデーション
-      if (!config.security?.openai_api_key) {
-        throw new Error('config.yaml に security.openai_api_key が設定されていません');
-      }
-      if (config.security.openai_api_key.includes('xxxx')) {
-        throw new Error('config.yaml の openai_api_key がサンプル値のままです。実際の API キーを設定してください');
-      }
-      if (!config.prompt?.system) {
-        throw new Error('config.yaml に prompt.system が設定されていません');
-      }
-
-      cachedConfig = config;
-      console.log('[INFO] 設定の検証に成功しました');
-      return config;
     } catch (fileError: any) {
       if (fileError.code === 'ENOENT') {
-        throw new Error(`設定ファイルが見つかりません: ${configPath}\n\nconfig/config.yaml.example をコピーして config/config.yaml を作成してください。`);
+        console.warn('[WARN] config.yaml が見つかりません。環境変数のみで起動を試みます');
+      } else {
+        throw fileError;
       }
-      throw fileError;
     }
+
+    // 環境変数を優先して構成
+    const mergedConfig: Config = {
+      security: {
+        openai_api_key: process.env.OPENAI_API_KEY || fileConfig.security?.openai_api_key || ''
+      },
+      rag: {
+        vector_store_id: process.env.VECTOR_STORE_ID || fileConfig.rag?.vector_store_id || ''
+      },
+      prompt: {
+        system: process.env.SYSTEM_PROMPT || fileConfig.prompt?.system || ''
+      }
+    };
+
+    // 必須フィールドのバリデーション
+    if (!mergedConfig.security?.openai_api_key) {
+      throw new Error('OPENAI_API_KEY（環境変数）または config.yaml の security.openai_api_key が未設定です');
+    }
+    if (!mergedConfig.prompt?.system) {
+      throw new Error('SYSTEM_PROMPT（環境変数）または config.yaml の prompt.system が未設定です');
+    }
+
+    cachedConfig = mergedConfig;
+    console.log('[INFO] 設定の検証に成功しました（env優先でマージ）');
+    return mergedConfig;
   } catch (error) {
-    console.error('[ERROR] config.yaml の読み込みに失敗:', error);
+    console.error('[ERROR] 設定ロードに失敗:', error);
     console.error('[ERROR] 詳細:', error instanceof Error ? error.stack : error);
     throw error;
   }
