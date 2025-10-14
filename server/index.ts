@@ -9,18 +9,15 @@
 
 import express, { Request, Response } from 'express';
 import cors from 'cors';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { load as yamlLoad } from 'js-yaml';
 import { resolve } from 'path';
 
 const app = express();
-const PORT = 3001;
+const PORT = Number(process.env.PORT) || 3001;
 
-// CORS 設定（localhost のみ許可）
-app.use(cors({
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
-  credentials: true
-}));
+// CORS 設定（本番は Replit の任意ドメインになるため許可を緩める）
+app.use(cors({ origin: true, credentials: true }));
 
 app.use(express.json());
 
@@ -429,9 +426,27 @@ app.post('/api/kb_search', async (req: Request, res: Response) => {
   }
 });
 
+// 本番ビルドの静的ファイルを配信（存在する場合）
+const distPath = resolve(process.cwd(), 'dist');
+if (existsSync(distPath)) {
+  app.use(express.static(distPath));
+}
+
+// SPA ルーティング: API 以外のパスは index.html を返す
+app.get('*', (_req: Request, res: Response, next) => {
+  if (_req.path.startsWith('/api')) return next();
+  try {
+    const indexHtml = resolve(distPath, 'index.html');
+    const html = readFileSync(indexHtml, 'utf8');
+    res.send(html);
+  } catch {
+    next();
+  }
+});
+
 // サーバー起動
 app.listen(PORT, () => {
-  console.log(`[INFO] サーバーが起動しました: http://localhost:${PORT}`);
+  console.log(`[INFO] サーバーが起動しました: 0.0.0.0:${PORT}`);
   
   // 起動時に設定を読み込む
   try {
