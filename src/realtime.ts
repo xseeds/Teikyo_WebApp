@@ -15,6 +15,8 @@ export interface RealtimeCallbacks {
   onMessageDelta: (text: string) => void;
   onAudioTranscript: (transcript: string, isPlaceholder?: boolean) => void;
   onToolCall?: (toolName: string, args: any) => void;
+  onToolCallStart?: (toolName: string) => void;
+  onToolCallEnd?: (toolName: string) => void;
 }
 
 /**
@@ -255,14 +257,31 @@ export class RealtimeClient {
         // テキストの差分受信
         if (event.delta) {
           this.currentResponseText += event.delta;
-          this.callbacks.onMessageDelta(this.currentResponseText);
+          
+          // ユーザーの文字起こし待ちの場合、デルタ更新もキューに入れる
+          if (this.pendingUserTranscript) {
+            const currentText = this.currentResponseText;
+            this.responseQueue.push(() => {
+              this.callbacks.onMessageDelta(currentText);
+            });
+          } else {
+            this.callbacks.onMessageDelta(this.currentResponseText);
+          }
         }
         break;
 
       case 'response.text.done':
         // テキスト応答完了
         if (event.text) {
-          this.callbacks.onMessage(event.text);
+          // ユーザーの文字起こし待ちの場合、完了処理もキューに入れる
+          if (this.pendingUserTranscript) {
+            const finalText = event.text;
+            this.responseQueue.push(() => {
+              this.callbacks.onMessage(finalText);
+            });
+          } else {
+            this.callbacks.onMessage(event.text);
+          }
         }
         this.currentResponseText = '';
         break;
@@ -281,14 +300,31 @@ export class RealtimeClient {
         // AI応答の音声文字起こし差分
         if (event.delta) {
           this.currentResponseText += event.delta;
-          this.callbacks.onMessageDelta(this.currentResponseText);
+          
+          // ユーザーの文字起こし待ちの場合、デルタ更新もキューに入れる
+          if (this.pendingUserTranscript) {
+            const currentText = this.currentResponseText;
+            this.responseQueue.push(() => {
+              this.callbacks.onMessageDelta(currentText);
+            });
+          } else {
+            this.callbacks.onMessageDelta(this.currentResponseText);
+          }
         }
         break;
 
       case 'response.audio_transcript.done':
         // AI応答の音声文字起こし完了
         if (event.transcript) {
-          this.callbacks.onMessage(event.transcript);
+          // ユーザーの文字起こし待ちの場合、完了処理もキューに入れる
+          if (this.pendingUserTranscript) {
+            const finalText = event.transcript;
+            this.responseQueue.push(() => {
+              this.callbacks.onMessage(finalText);
+            });
+          } else {
+            this.callbacks.onMessage(event.transcript);
+          }
         }
         this.currentResponseText = '';
         break;
@@ -357,6 +393,11 @@ export class RealtimeClient {
         this.callbacks.onToolCall(toolName, args);
       }
 
+      // ツール呼び出し開始を通知
+      if (this.callbacks.onToolCallStart) {
+        this.callbacks.onToolCallStart(toolName);
+      }
+
       // サーバの /api/kb_search に委譲
       const response = await fetch('/api/kb_search', {
         method: 'POST',
@@ -378,12 +419,22 @@ export class RealtimeClient {
       // ツール結果をモデルに返却
       this.sendToolResult(callId, searchResult);
 
+      // ツール呼び出し終了を通知
+      if (this.callbacks.onToolCallEnd) {
+        this.callbacks.onToolCallEnd(toolName);
+      }
+
     } catch (error) {
       console.error('[ERROR] ツール呼び出しエラー:', error);
       this.sendToolResult(callId, { 
         error: error instanceof Error ? error.message : '不明なエラー',
         results: []
       });
+      
+      // エラー時もツール呼び出し終了を通知
+      if (this.callbacks.onToolCallEnd) {
+        this.callbacks.onToolCallEnd(toolName);
+      }
     }
   }
 
