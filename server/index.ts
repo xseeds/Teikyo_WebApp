@@ -277,9 +277,11 @@ app.post('/api/kb_search', async (req: Request, res: Response) => {
 
     const apiKey = config.security.openai_api_key;
     console.log('[INFO] Vector Store ID:', vectorStoreId);
-    console.log('[INFO] Responses API でベクタ検索を実行中...');
+    console.log('[INFO] Responses API でベクタ検索＆要約を実行中...');
 
-    // Responses API を使用（file_search ツールをサポート）
+    // Responses API を使用（file_search + AI要約のハイブリッド）
+    // ベストプラクティス: Responses APIで検索と要約を同時実行し、
+    // Realtime APIには簡潔な要約のみを返すことで低遅延と高品質を両立
     // https://platform.openai.com/docs/guides/tools-file-search
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
@@ -290,11 +292,18 @@ app.post('/api/kb_search', async (req: Request, res: Response) => {
       body: JSON.stringify({
         input: query,
         model: 'gpt-4o-mini',
+        instructions: `あなたは知識ベース検索の要約エキスパートです。
+以下のルールに従って、検索結果を簡潔に要約してください：
+1. 2-3文程度で簡潔に回答（最大150文字）
+2. 重要な情報のみを抽出
+3. 引用元のファイル名には言及しない（内部処理のため）
+4. 「検索しました」「ファイルを確認しました」などのメタ情報は不要
+5. ユーザーの質問に直接答える形式で記述`,
         tools: [
           {
             type: 'file_search',
             vector_store_ids: [vectorStoreId],
-            max_num_results: top_k || 5
+            max_num_results: Math.min(top_k || 3, 5)  // 最大5件に制限してレイテンシ改善
           }
         ]
       })
@@ -313,107 +322,100 @@ app.post('/api/kb_search', async (req: Request, res: Response) => {
 
     const data = await response.json();
     console.log('[INFO] Responses API レスポンス取得完了');
-    console.log('[DEBUG] Full response:', JSON.stringify(data, null, 2).substring(0, 2000));
-
-    // Responses API のレスポンス構造から情報を抽出
-    // output フィールドに結果が格納されている
-    const outputs = data.output || [];
-    
-    console.log('[INFO] 検索結果:', {
-      outputLength: outputs.length,
-      outputTypes: outputs.map((o: any) => o.type)
+    console.log('[DEBUG] Response structure:', {
+      outputCount: data.output?.length,
+      outputTypes: data.output?.map((o: any) => o.type)
     });
 
-    // 結果を整形
+    // Responses API のレスポンス構造から要約テキストを抽出
+    const outputs = data.output || [];
     const results: any[] = [];
 
-    // output から file_search_call の results を抽出
+    // message 型の output から要約済みテキストを抽出
     for (const output of outputs) {
-      // file_search_call の結果を確認
-      if (output.type === 'file_search_call' && output.results) {
-        console.log('[INFO] file_search_call 結果を発見:', output.results.length, '件');
-        
-        output.results.forEach((result: any) => {
-          const content = result.content || '';
-          const fileName = result.file_name || result.file_id || 'unknown';
-          const score = result.score || 0.5;
-          
-          // 内容を要約と引用に分割
-          const sentences = content.split(/[。．.!！?？\n]/).filter((s: string) => s.trim());
-          const summaryText = sentences.slice(0, Math.min(2, sentences.length)).join('。');
-          const quoteText = sentences.slice(2, Math.min(5, sentences.length)).join('。');
-          
-          results.push({
-            summary: summaryText + (summaryText ? '。' : ''),
-            quote: quoteText + (quoteText && sentences.length > 2 ? '。' : ''),
-            source: {
-              file: fileName,
-              page: null,
-              url: null,
-              score: score
-            }
-          });
-        });
-      }
-      
-      // message 型の output から情報を抽出
       if (output.type === 'message' && output.content) {
         for (const contentItem of output.content) {
           if (contentItem.type === 'output_text' && contentItem.text) {
-            const text = contentItem.text;
+            const text = contentItem.text.trim();
             const annotations = contentItem.annotations || [];
             
             // ファイル情報を取得（annotationsから）
-            let fileName = 'vector_store_content';
-            if (annotations.length > 0 && annotations[0].type === 'file_citation') {
-              fileName = annotations[0].filename || annotations[0].file_id || 'vector_store_content';
+            const sourceFiles = annotations
+              .filter((a: any) => a.type === 'file_citation')
+              .map((a: any) => a.filename || a.file_id)
+              .filter(Boolean);
+            
+            const fileName = sourceFiles.length > 0 ? sourceFiles[0] : 'knowledge_base';
+            
+            // Responses APIが既に要約済みなので、そのまま使用
+            // ただし、長すぎる場合（200文字超）はトリミング
+            let summary = text;
+            let quote = '';
+            
+            if (text.length > 200) {
+              // 長い場合は前半を要約、後半を引用として分割
+              const sentences = text.split(/[。．.!！?？\n]/).filter((s: string) => s.trim());
+              const midPoint = Math.ceil(sentences.length / 2);
+              summary = sentences.slice(0, midPoint).join('。') + '。';
+              quote = sentences.slice(midPoint).join('。') + '。';
+            } else {
+              // 短い場合はすべて要約として扱う
+              summary = text;
+              quote = '';
             }
             
-            // テキストを文単位で分割
-            const sentences = text.split(/[。．.!！?？\n]/).filter((s: string) => s.trim());
+            results.push({
+              summary: summary,
+              quote: quote,
+              source: {
+                file: fileName,
+                page: null,
+                url: null,
+                score: 0.95,  // Responses APIの要約は高品質
+                citationCount: annotations.length
+              }
+            });
             
-            if (sentences.length > 0) {
-              const summaryText = sentences.slice(0, Math.min(2, sentences.length)).join('。');
-              const quoteText = sentences.slice(2, Math.min(5, sentences.length)).join('。');
-              
-              results.push({
-                summary: summaryText + (summaryText ? '。' : ''),
-                quote: quoteText + (quoteText && sentences.length > 2 ? '。' : ''),
-                source: {
-                  file: fileName,
-                  page: null,
-                  url: null,
-                  score: 0.9
-                }
-              });
-              
-              console.log('[INFO] output_text から結果を抽出しました:', {
-                fileName,
-                textLength: text.length,
-                annotationsCount: annotations.length
-              });
-            }
+            console.log('[SUCCESS] 要約を抽出:', {
+              summaryLength: summary.length,
+              quoteLength: quote.length,
+              sourceFiles: sourceFiles.length,
+              annotations: annotations.length
+            });
+            
+            // 最初の1つの要約のみを使用（複数のmessageがある場合）
+            break;
           }
         }
+        
+        if (results.length > 0) break;
       }
     }
 
-    // もし結果が空の場合は、一般的な応答を返す
+    // もし結果が空の場合は、適切な応答を返す
     if (results.length === 0) {
-      console.warn('[WARN] 検索結果が空です');
+      console.warn('[WARN] Responses APIから要約を抽出できませんでした');
+      console.warn('[DEBUG] 生レスポンス（最初の500文字）:', JSON.stringify(data).substring(0, 500));
+      
       results.push({
-        summary: '関連する情報が見つかりませんでした。',
+        summary: '申し訳ございませんが、知識ベースから関連する情報が見つかりませんでした。',
         quote: '',
         source: {
           file: 'no_results',
           page: null,
           url: null,
-          score: 0.0
+          score: 0.0,
+          citationCount: 0
         }
       });
     }
 
-    console.log('[INFO] 検索結果を返却:', results.length, '件');
+    console.log('[INFO] ✅ RAG検索完了 - 要約を返却:', {
+      resultCount: results.length,
+      summaryLength: results[0]?.summary?.length || 0,
+      sourceCitations: results[0]?.source?.citationCount || 0
+    });
+    
     res.json({ results });
 
   } catch (error) {

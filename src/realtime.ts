@@ -474,18 +474,18 @@ export class RealtimeClient {
             {
               type: 'function',
               name: 'kb_search',
-              description: '与えられたクエリでベクタ検索を実行し、関連する知識ベースの情報（要約・引用・出典）を返します。ドメイン知識や専門的な質問に対しては必ずこのツールを使用してください。',
+              description: '知識ベース（Vector Store）からAI要約された情報を取得します。医療教育、救急シナリオ、専門的な質問に対して使用してください。このツールは検索と要約を同時に実行し、簡潔な回答を返します。',
               parameters: {
                 type: 'object',
                 properties: {
                   query: {
                     type: 'string',
-                    description: '検索クエリ（ユーザーの質問内容）'
+                    description: '検索クエリ（ユーザーの質問を明確に表現したキーワードまたは文）'
                   },
                   top_k: {
                     type: 'integer',
-                    description: '取得する上位件数（デフォルト: 5）',
-                    default: 5
+                    description: '検索する上位件数（1-5を推奨、デフォルト: 3）',
+                    default: 3
                   }
                 },
                 required: ['query']
@@ -541,8 +541,10 @@ export class RealtimeClient {
       // RAG モードの場合、tool_choice を required に設定
       if (this.useRag) {
         responseCreateEvent.response.tool_choice = 'required';
-        responseCreateEvent.response.instructions = '回答する前に必ず kb_search ツールで関連情報を検索してください。検索結果の引用と出典を含めて回答してください。根拠が無い場合は「情報不足」と明確に述べてください。';
-        console.log('[INFO] RAG モード: tool_choice=required');
+        responseCreateEvent.response.instructions = `回答する前に必ず kb_search ツールで知識ベースを検索してください。
+検索結果（summary）は既に要約済みなので、それをそのまま自然な言葉で伝えてください。
+追加の推測や説明は不要です。検索結果が見つからない場合は、素直にその旨を伝えてください。`;
+        console.log('[INFO] RAG モード有効: tool_choice=required');
       }
       
       this.dataChannel.send(JSON.stringify(responseCreateEvent));
