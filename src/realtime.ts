@@ -140,8 +140,8 @@ export class RealtimeClient {
       } else {
         // DataChannel が開いたら音声文字起こしを有効化とツール登録
         const originalOnOpen = this.dataChannel!.onopen;
-        this.dataChannel!.onopen = () => {
-          if (originalOnOpen) originalOnOpen.call(this.dataChannel);
+        this.dataChannel!.onopen = (ev) => {
+          if (originalOnOpen) originalOnOpen.call(this.dataChannel as RTCDataChannel, ev);
           this.enableAudioTranscription();
           if (this.useRag) {
             this.registerKbSearchTool();

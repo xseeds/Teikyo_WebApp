@@ -24,7 +24,7 @@ describe('POST /api/kb_search', () => {
   });
 
   it('should accept valid kb_search request', () => {
-    const mockRequest = {
+    const mockRequest: any = {
       body: {
         query: '製品の仕様について',
         top_k: 5
@@ -40,7 +40,7 @@ describe('POST /api/kb_search', () => {
   });
 
   it('should use default top_k if not provided', () => {
-    const mockRequest = {
+    const mockRequest: any = {
       body: {
         query: 'テストクエリ'
       }
