@@ -15,6 +15,8 @@ export interface RealtimeCallbacks {
   onMessageDelta: (text: string) => void;
   onAudioTranscript: (transcript: string, isPlaceholder?: boolean) => void;
   onToolCall?: (toolName: string, args: any) => void;
+  onToolCallStart?: (toolName: string) => void;
+  onToolCallEnd?: (toolName: string) => void;
 }
 
 /**
@@ -391,6 +393,11 @@ export class RealtimeClient {
         this.callbacks.onToolCall(toolName, args);
       }
 
+      // ツール呼び出し開始を通知
+      if (this.callbacks.onToolCallStart) {
+        this.callbacks.onToolCallStart(toolName);
+      }
+
       // サーバの /api/kb_search に委譲
       const response = await fetch('/api/kb_search', {
         method: 'POST',
@@ -412,12 +419,22 @@ export class RealtimeClient {
       // ツール結果をモデルに返却
       this.sendToolResult(callId, searchResult);
 
+      // ツール呼び出し終了を通知
+      if (this.callbacks.onToolCallEnd) {
+        this.callbacks.onToolCallEnd(toolName);
+      }
+
     } catch (error) {
       console.error('[ERROR] ツール呼び出しエラー:', error);
       this.sendToolResult(callId, { 
         error: error instanceof Error ? error.message : '不明なエラー',
         results: []
       });
+      
+      // エラー時もツール呼び出し終了を通知
+      if (this.callbacks.onToolCallEnd) {
+        this.callbacks.onToolCallEnd(toolName);
+      }
     }
   }
 

@@ -25,6 +25,7 @@ let messageIdCounter = 0;
 let currentAssistantMessageId: string | null = null;
 let currentUserMessageId: string | null = null;
 let voiceModeEnabled = false; // 音声モードのオン/オフ
+let ragLoadingMessageId: string | null = null; // RAG検索中の表示メッセージID
 
 /**
  * ステータス表示を更新
@@ -37,7 +38,7 @@ function updateStatus(status: 'disconnected' | 'connecting' | 'connected' | 'err
 /**
  * 会話バブルを追加（固有IDを付与）
  */
-function addMessage(role: 'user' | 'assistant', text: string): string {
+function addMessage(role: 'user' | 'assistant', text: string, isLoading = false): string {
   const messageId = `msg-${messageIdCounter++}`;
   const messageDiv = document.createElement('div');
   messageDiv.className = `message ${role}`;
@@ -45,7 +46,12 @@ function addMessage(role: 'user' | 'assistant', text: string): string {
   
   const bubble = document.createElement('div');
   bubble.className = 'message-bubble';
-  bubble.textContent = text;
+  
+  if (isLoading) {
+    bubble.innerHTML = `<div class="loading-spinner"></div><span>${text}</span>`;
+  } else {
+    bubble.textContent = text;
+  }
   
   messageDiv.appendChild(bubble);
   conversation.appendChild(messageDiv);
@@ -59,12 +65,16 @@ function addMessage(role: 'user' | 'assistant', text: string): string {
 /**
  * 特定のメッセージを更新（IDで指定）
  */
-function updateMessage(messageId: string, text: string) {
+function updateMessage(messageId: string, text: string, isLoading = false) {
   const messageDiv = conversation.querySelector(`[data-message-id="${messageId}"]`);
   if (messageDiv) {
     const bubble = messageDiv.querySelector('.message-bubble');
     if (bubble) {
-      bubble.textContent = text;
+      if (isLoading) {
+        bubble.innerHTML = `<div class="loading-spinner"></div><span>${text}</span>`;
+      } else {
+        bubble.textContent = text;
+      }
       conversation.scrollTop = conversation.scrollHeight;
       console.log(`[INFO] メッセージ更新: ${messageId}: ${text.substring(0, 30)}...`);
     }
@@ -226,6 +236,24 @@ async function handleConnect() {
               console.log('[INFO] ユーザー音声入力を新規追加:', transcript);
               addMessage('user', transcript);
             }
+          }
+        },
+        onToolCallStart: (toolName) => {
+          // RAG検索開始時にローディング表示
+          if (toolName === 'kb_search') {
+            console.log('[INFO] RAG検索開始 - ローディング表示');
+            ragLoadingMessageId = addMessage('assistant', '📚 知識ベースを検索中...', true);
+          }
+        },
+        onToolCallEnd: (toolName) => {
+          // RAG検索終了時にローディングメッセージを削除
+          if (toolName === 'kb_search' && ragLoadingMessageId) {
+            console.log('[INFO] RAG検索終了 - ローディング非表示');
+            const loadingDiv = conversation.querySelector(`[data-message-id="${ragLoadingMessageId}"]`);
+            if (loadingDiv) {
+              loadingDiv.remove();
+            }
+            ragLoadingMessageId = null;
           }
         }
       }
