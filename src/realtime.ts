@@ -255,14 +255,31 @@ export class RealtimeClient {
         // テキストの差分受信
         if (event.delta) {
           this.currentResponseText += event.delta;
-          this.callbacks.onMessageDelta(this.currentResponseText);
+          
+          // ユーザーの文字起こし待ちの場合、デルタ更新もキューに入れる
+          if (this.pendingUserTranscript) {
+            const currentText = this.currentResponseText;
+            this.responseQueue.push(() => {
+              this.callbacks.onMessageDelta(currentText);
+            });
+          } else {
+            this.callbacks.onMessageDelta(this.currentResponseText);
+          }
         }
         break;
 
       case 'response.text.done':
         // テキスト応答完了
         if (event.text) {
-          this.callbacks.onMessage(event.text);
+          // ユーザーの文字起こし待ちの場合、完了処理もキューに入れる
+          if (this.pendingUserTranscript) {
+            const finalText = event.text;
+            this.responseQueue.push(() => {
+              this.callbacks.onMessage(finalText);
+            });
+          } else {
+            this.callbacks.onMessage(event.text);
+          }
         }
         this.currentResponseText = '';
         break;
@@ -281,14 +298,31 @@ export class RealtimeClient {
         // AI応答の音声文字起こし差分
         if (event.delta) {
           this.currentResponseText += event.delta;
-          this.callbacks.onMessageDelta(this.currentResponseText);
+          
+          // ユーザーの文字起こし待ちの場合、デルタ更新もキューに入れる
+          if (this.pendingUserTranscript) {
+            const currentText = this.currentResponseText;
+            this.responseQueue.push(() => {
+              this.callbacks.onMessageDelta(currentText);
+            });
+          } else {
+            this.callbacks.onMessageDelta(this.currentResponseText);
+          }
         }
         break;
 
       case 'response.audio_transcript.done':
         // AI応答の音声文字起こし完了
         if (event.transcript) {
-          this.callbacks.onMessage(event.transcript);
+          // ユーザーの文字起こし待ちの場合、完了処理もキューに入れる
+          if (this.pendingUserTranscript) {
+            const finalText = event.transcript;
+            this.responseQueue.push(() => {
+              this.callbacks.onMessage(finalText);
+            });
+          } else {
+            this.callbacks.onMessage(event.transcript);
+          }
         }
         this.currentResponseText = '';
         break;
