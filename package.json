@@ -8,7 +8,7 @@
     "server:dev": "tsx watch server/index.ts",
     "client:dev": "vite",
     "build": "tsc && vite build",
-    "start": "node dist/server/index.js",
+    "start": "pwd && ls -la && ls -la dist && ls -la dist/server && node dist/server/index.js",
     "test": "vitest run"
   },
   "keywords": [
