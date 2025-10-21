@@ -14,7 +14,7 @@
     "rootDir": ".",
     "types": ["node", "vite/client"]
   },
-  "include": ["src/**/*", "server/**/*", "tests/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["src/**/*", "server/**/*"],
+  "exclude": ["node_modules", "dist", "tests"]
 }
 
