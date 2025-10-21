@@ -6,7 +6,8 @@ export default defineConfig({
   publicDir: 'public',
   build: {
     outDir: 'dist',
-    emptyOutDir: true,
+    // NOTE: tsc が dist/server に出力した成果物を消さないため false
+    emptyOutDir: false,
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
