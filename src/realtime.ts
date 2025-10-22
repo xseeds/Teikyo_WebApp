@@ -59,7 +59,16 @@ export class RealtimeClient {
       this.peerConnection = new RTCPeerConnection();
 
       // マイク音声ストリームを取得して追加
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // 音質安定化のため詳細な制約を指定
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,    // エコー除去ON
+          noiseSuppression: true,     // ノイズ抑制ON
+          autoGainControl: false,     // 自動ゲインOFF（Realtime APIが管理）
+          channelCount: 1,            // モノラル
+          sampleRate: 48000           // 48kHz（WebRTC標準）
+        }
+      });
       this.localStream = stream;
       
       stream.getTracks().forEach((track) => {
@@ -72,25 +81,28 @@ export class RealtimeClient {
 
       // 受信音声トラックの処理
       this.peerConnection.ontrack = (event) => {
+        // 音声トラックのみ処理（ビデオトラック等を排除）
+        if (event.track.kind !== 'audio') {
+          console.log('[INFO] 音声以外のトラックを無視:', event.track.kind);
+          return;
+        }
+        
         console.log('[INFO] 音声トラックを受信しました', {
           trackId: event.track.id,
-          trackKind: event.track.kind,
-          streamId: event.streams[0]?.id
+          trackKind: event.track.kind
         });
         
-        // 既に同じストリームが設定されている場合はスキップ
-        if (this.audioElement && event.streams[0]) {
-          const newStream = event.streams[0];
-          const currentStream = this.audioElement.srcObject as MediaStream | null;
-          
-          if (currentStream && currentStream.id === newStream.id) {
-            console.log('[INFO] 既に同じストリームが設定されているためスキップ');
-            return;
-          }
-          
+        // 単一の音声トラックだけで新しいMediaStreamを作成（多重再生防止）
+        const newStream = new MediaStream([event.track]);
+        const currentStream = this.audioElement?.srcObject as MediaStream | null;
+        
+        if (this.audioElement && (!currentStream || currentStream.id !== newStream.id)) {
           this.audioElement.srcObject = newStream;
-          // 最初はミュート（デフォルトは音声モードOFF）
+          this.audioElement.autoplay = true;
+          (this.audioElement as any).playsInline = true;
           this.audioElement.muted = true;
+          // 自動再生制限対策で明示的に再生開始
+          this.audioElement.play().catch(() => {});
           console.log('[INFO] 音声出力を初期化（ミュート: ON）', { streamId: newStream.id });
         }
       };
@@ -621,9 +633,15 @@ export class RealtimeClient {
       track.enabled = true;
     });
     
-    // オーディオ再生のミュートを解除
+    // オーディオ再生のミュートを解除（フェードインでクリックノイズ防止）
     if (this.audioElement) {
+      this.audioElement.volume = 0.0;
       this.audioElement.muted = false;
+      this.audioElement.play().catch(() => {});
+      // 50msかけてフェードイン
+      setTimeout(() => {
+        if (this.audioElement) this.audioElement.volume = 1.0;
+      }, 50);
     }
     
     // セッション更新: 音声モーダリティを有効化（voice設定も含める）
@@ -655,9 +673,15 @@ export class RealtimeClient {
       track.enabled = false;
     });
     
-    // オーディオ再生をミュート
+    // オーディオ再生をミュート（フェードアウトで音飛び防止）
     if (this.audioElement) {
-      this.audioElement.muted = true;
+      this.audioElement.volume = 0.2;
+      // 50msかけてフェードアウトしてからミュート
+      setTimeout(() => {
+        if (!this.audioElement) return;
+        this.audioElement.muted = true;
+        this.audioElement.volume = 1.0;
+      }, 50);
     }
     
     // セッション更新: テキストモーダリティのみ（voice設定は維持）
